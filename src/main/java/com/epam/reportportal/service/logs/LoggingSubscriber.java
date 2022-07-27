@@ -27,25 +27,27 @@ import javax.annotation.Nonnull;
  * Set of logging subscription for ReportPortal logging client
  */
 public final class LoggingSubscriber implements FlowableSubscriber<BatchSaveOperatingRS> {
-	private static final Logger LOGGER = LoggerFactory.getLogger(LoggingSubscriber.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(LoggingSubscriber.class);
 
-	@Override
-	public void onSubscribe(@Nonnull Subscription s) {
-		// ignore
-	}
+    @Override
+    public void onSubscribe(@Nonnull Subscription s) {
+        // ignore
+    }
 
-	@Override
-	public void onNext(BatchSaveOperatingRS result) {
-		// ignore
-	}
+    @Override
+    public void onNext(BatchSaveOperatingRS result) {
+        // ignore
+        result.getResponses().forEach(data -> LOGGER.debug("[{} {} {}] ReportPortal logging debug",
+                Thread.currentThread().getId(), data.getMessage(), data.getStackTrace()));
+    }
 
-	@Override
-	public void onError(Throwable e) {
-		LOGGER.error("[{}] ReportPortal logging error", Thread.currentThread().getId(), e);
-	}
+    @Override
+    public void onError(Throwable e) {
+        LOGGER.error("[{}] ReportPortal logging error", Thread.currentThread().getId(), e);
+    }
 
-	@Override
-	public void onComplete() {
-		// ignore
-	}
+    @Override
+    public void onComplete() {
+        // ignore
+    }
 }
