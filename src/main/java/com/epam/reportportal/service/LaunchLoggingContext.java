@@ -24,6 +24,7 @@ import com.epam.reportportal.utils.http.HttpRequestUtils;
 import com.epam.ta.reportportal.ws.model.BatchSaveOperatingRS;
 import com.epam.ta.reportportal.ws.model.log.SaveLogRQ;
 import io.reactivex.*;
+import io.reactivex.functions.Consumer;
 import io.reactivex.functions.Function;
 import io.reactivex.internal.operators.flowable.FlowableFromObservable;
 import io.reactivex.plugins.RxJavaPlugins;
@@ -37,7 +38,6 @@ import javax.annotation.Nullable;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static com.epam.reportportal.service.logs.LaunchLoggingCallback.LOG_ERROR;
 import static com.epam.reportportal.utils.files.ImageConverter.convert;
 import static com.epam.reportportal.utils.files.ImageConverter.isImage;
 import static com.google.common.io.ByteSource.wrap;
@@ -72,17 +72,26 @@ public class LaunchLoggingContext {
         this.launchUuid = launchUuid;
         this.emitter = PublishSubject.create();
         this.convertImages = parameters.isConvertImage();
+        Consumer<Throwable> LOG_ERROR = rs -> LOGGER.error("[{}] ReportPortal execution error", Thread.currentThread().getId(), rs);
+        Consumer<? super BatchSaveOperatingRS> LOG_DEBUG = rs -> rs.getResponses().forEach(response -> LOGGER.debug(
+                "[{}] ReportPortal execution log debug", response.getMessage()));
         RxJavaPlugins.onAssembly(new LogBatchingFlowable(
-                        new FlowableFromObservable<>(emitter).flatMap((Function<Maybe<SaveLogRQ>, Publisher<SaveLogRQ>>) Maybe::toFlowable),
+                        new FlowableFromObservable<>(emitter).flatMap((Function<Maybe<SaveLogRQ>,
+                                Publisher<SaveLogRQ>>) Maybe::toFlowable).onBackpressureBuffer(parameters.getRxBufferSize(), false, true),
                         parameters
                 ))
-                .flatMap((Function<List<SaveLogRQ>, Flowable<BatchSaveOperatingRS>>) rqs -> client.log(HttpRequestUtils.buildLogMultiPartRequest(
-                        rqs)).toFlowable())
-                .doOnEach(data -> data.getValue().getResponses().forEach(rs -> LOGGER.debug("Log response {} {}",
-                        rs.getMessage(), rs.getStackTrace())))
+                .flatMap((Function<List<SaveLogRQ>, Flowable<BatchSaveOperatingRS>>) rqs ->
+                {
+                    Maybe<BatchSaveOperatingRS> response = client.log(HttpRequestUtils.buildLogMultiPartRequest(rqs));
+                    response.subscribe(LOG_DEBUG);
+                    response.doOnSuccess(LOG_DEBUG);
+                    return response.toFlowable();
+                })
+                .doOnNext(LOG_DEBUG)
+                .doOnEach(r -> LOG_DEBUG.accept(r.getValue()))
                 .doOnError(LOG_ERROR)
                 .observeOn(scheduler)
-                .onBackpressureBuffer(parameters.getRxBufferSize(), true, true)
+                .onBackpressureBuffer(parameters.getRxBufferSize(), false, true)
                 .subscribe(loggingSubscriber);
     }
 

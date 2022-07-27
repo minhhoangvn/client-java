@@ -29,6 +29,8 @@ import io.reactivex.subscribers.SerializedSubscriber;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 import java.util.ArrayList;
@@ -39,126 +41,127 @@ import java.util.List;
  * payload size.
  */
 public class LogBatchingFlowable extends Flowable<List<SaveLogRQ>> implements HasUpstreamPublisher<SaveLogRQ> {
+    private static final Logger LOGGER = LoggerFactory.getLogger(LogBatchingFlowable.class);
+    private final int maxSize;
+    private final long payloadLimit;
 
-	private final int maxSize;
-	private final long payloadLimit;
+    private final Flowable<SaveLogRQ> source;
 
-	private final Flowable<SaveLogRQ> source;
+    public LogBatchingFlowable(Flowable<SaveLogRQ> flowableSource, ListenerParameters parameters) {
+        source = flowableSource;
+        maxSize = parameters.getBatchLogsSize();
+        payloadLimit = parameters.getBatchPayloadLimit();
+    }
 
-	public LogBatchingFlowable(Flowable<SaveLogRQ> flowableSource, ListenerParameters parameters) {
-		source = flowableSource;
-		maxSize = parameters.getBatchLogsSize();
-		payloadLimit = parameters.getBatchPayloadLimit();
-	}
+    @Override
+    protected void subscribeActual(Subscriber<? super List<SaveLogRQ>> s) {
+        source.subscribe(new LogBatchingFlowable.BufferSubscriber(new SerializedSubscriber<>(s), maxSize, payloadLimit));
+    }
 
-	@Override
-	protected void subscribeActual(Subscriber<? super List<SaveLogRQ>> s) {
-		source.subscribe(new LogBatchingFlowable.BufferSubscriber(new SerializedSubscriber<>(s), maxSize, payloadLimit));
-	}
+    @Override
+    public Publisher<SaveLogRQ> source() {
+        return source;
+    }
 
-	@Override
-	public Publisher<SaveLogRQ> source() {
-		return source;
-	}
+    private static final class BufferSubscriber implements FlowableSubscriber<SaveLogRQ>, Subscription {
+        private final Subscriber<List<SaveLogRQ>> downstream;
+        private final int maxSize;
+        private final long payloadLimit;
 
-	private static final class BufferSubscriber implements FlowableSubscriber<SaveLogRQ>, Subscription {
-		private final Subscriber<List<SaveLogRQ>> downstream;
-		private final int maxSize;
-		private final long payloadLimit;
+        private List<SaveLogRQ> buffer;
+        private long payloadSize;
+        private Subscription upstream;
+        boolean done;
 
-		private List<SaveLogRQ> buffer;
-		private long payloadSize;
-		private Subscription upstream;
-		boolean done;
+        public BufferSubscriber(Subscriber<List<SaveLogRQ>> actual, int batchMaxSize, long batchPayloadLimit) {
+            downstream = actual;
+            maxSize = batchMaxSize;
+            payloadLimit = batchPayloadLimit;
+        }
 
-		public BufferSubscriber(Subscriber<List<SaveLogRQ>> actual, int batchMaxSize, long batchPayloadLimit) {
-			downstream = actual;
-			maxSize = batchMaxSize;
-			payloadLimit = batchPayloadLimit;
-		}
+        @Override
+        public void onSubscribe(@Nonnull Subscription s) {
+            if (!SubscriptionHelper.validate(upstream, s)) {
+                return;
+            }
+            upstream = s;
+            buffer = new ArrayList<>();
+            payloadSize = HttpRequestUtils.TYPICAL_MULTIPART_FOOTER_LENGTH;
 
-		@Override
-		public void onSubscribe(@Nonnull Subscription s) {
-			if (!SubscriptionHelper.validate(upstream, s)) {
-				return;
-			}
-			upstream = s;
-			buffer = new ArrayList<>();
-			payloadSize = HttpRequestUtils.TYPICAL_MULTIPART_FOOTER_LENGTH;
+            downstream.onSubscribe(this);
+        }
 
-			downstream.onSubscribe(this);
-		}
+        private void reset() {
+            buffer = new ArrayList<>();
+            payloadSize = HttpRequestUtils.TYPICAL_MULTIPART_FOOTER_LENGTH;
+        }
 
-		private void reset() {
-			buffer = new ArrayList<>();
-			payloadSize = HttpRequestUtils.TYPICAL_MULTIPART_FOOTER_LENGTH;
-		}
+        @Override
+        public void onNext(SaveLogRQ t) {
+            if (done) {
+                return;
+            }
+            long size = HttpRequestUtils.calculateRequestSize(t);
+            List<List<SaveLogRQ>> toSend = new ArrayList<>();
+            synchronized (this) {
+                if (buffer == null) {
+                    return;
+                }
+                if (payloadSize + size > payloadLimit) {
+                    if (buffer.size() > 0) {
+                        toSend.add(buffer);
+                        reset();
+                    }
+                }
+                buffer.add(t);
+                payloadSize += size;
+                if (buffer.size() >= maxSize) {
+                    toSend.add(buffer);
+                    reset();
+                }
+            }
+            toSend.forEach(downstream::onNext);
+        }
 
-		@Override
-		public void onNext(SaveLogRQ t) {
-			if (done) {
-				return;
-			}
-			long size = HttpRequestUtils.calculateRequestSize(t);
-			List<List<SaveLogRQ>> toSend = new ArrayList<>();
-			synchronized (this) {
-				if (buffer == null) {
-					return;
-				}
-				if (payloadSize + size > payloadLimit) {
-					if (buffer.size() > 0) {
-						toSend.add(buffer);
-						reset();
-					}
-				}
-				buffer.add(t);
-				payloadSize += size;
-				if (buffer.size() >= maxSize) {
-					toSend.add(buffer);
-					reset();
-				}
-			}
-			toSend.forEach(downstream::onNext);
-		}
+        @Override
+        public void onError(Throwable t) {
+            LOGGER.error("[{}] ReportPortal execution error", Thread.currentThread().getId(), t);
+            if (done) {
+                RxJavaPlugins.onError(t);
+                return;
+            }
+            done = true;
+            downstream.onError(t);
+        }
 
-		@Override
-		public void onError(Throwable t) {
-			if (done) {
-				RxJavaPlugins.onError(t);
-				return;
-			}
-			done = true;
-			downstream.onError(t);
-		}
+        @Override
+        public void onComplete() {
+            if (done) {
+                return;
+            }
+            done = true;
 
-		@Override
-		public void onComplete() {
-			if (done) {
-				return;
-			}
-			done = true;
+            List<List<SaveLogRQ>> toSend = new ArrayList<>();
+            synchronized (this) {
+                if (buffer != null && !buffer.isEmpty()) {
+                    toSend.add(buffer);
+                    reset();
+                }
+            }
+            toSend.forEach(downstream::onNext);
+            downstream.onComplete();
+        }
 
-			List<List<SaveLogRQ>> toSend = new ArrayList<>();
-			synchronized (this) {
-				if (buffer != null && !buffer.isEmpty()) {
-					toSend.add(buffer);
-					reset();
-				}
-			}
-			toSend.forEach(downstream::onNext);
-			downstream.onComplete();
-		}
+        @Override
+        public void request(long n) {
+            if (SubscriptionHelper.validate(n)) {
+                upstream.request(BackpressureHelper.multiplyCap(n, maxSize));
+            }
+        }
 
-		@Override
-		public void request(long n) {
-			if (SubscriptionHelper.validate(n)) {
-				upstream.request(BackpressureHelper.multiplyCap(n, maxSize));
-			}
-		}
-
-		@Override
-		public void cancel() {
-			upstream.cancel();
-		}
-	}
+        @Override
+        public void cancel() {
+            upstream.cancel();
+        }
+    }
 }
