@@ -27,25 +27,31 @@ import javax.annotation.Nonnull;
  * Set of logging subscription for ReportPortal logging client
  */
 public final class LoggingSubscriber implements FlowableSubscriber<BatchSaveOperatingRS> {
-	private static final Logger LOGGER = LoggerFactory.getLogger(LoggingSubscriber.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(LoggingSubscriber.class);
 
-	@Override
-	public void onSubscribe(@Nonnull Subscription s) {
-		// ignore
-	}
+    @Override
+    public void onSubscribe(@Nonnull Subscription s) {
+        // ignore
+    }
 
-	@Override
-	public void onNext(BatchSaveOperatingRS result) {
-		// ignore
-	}
+    @Override
+    public void onNext(BatchSaveOperatingRS result) {
+        result.getResponses().forEach(res -> LOGGER.debug("[{}] ReportPortal logging onNext LoggingSubscriber: id " +
+                        "[{}]" +
+                        " " +
+                        "message [{}] error[{}]",
+                Thread.currentThread().getId(),
+                res.getId(), res.getMessage(), res.getStackTrace()));
+    }
 
-	@Override
-	public void onError(Throwable e) {
-		LOGGER.error("[{}] ReportPortal logging error", Thread.currentThread().getId(), e);
-	}
+    @Override
+    public void onError(Throwable e) {
+        LOGGER.error("[{}] ReportPortal logging error", Thread.currentThread().getId(), e);
+    }
 
-	@Override
-	public void onComplete() {
-		// ignore
-	}
+    @Override
+    public void onComplete() {
+        // ignore
+        LOGGER.debug("[{}] ReportPortal logging onComplete LoggingSubscriber", Thread.currentThread().getId());
+    }
 }

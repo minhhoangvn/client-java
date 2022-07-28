@@ -33,13 +33,17 @@ project.ext.limits = [
 sourceCompatibility = JavaVersion.VERSION_1_8
 targetCompatibility = JavaVersion.VERSION_1_8
 
+group = "io.github.minhhoangvn"
+archivesBaseName = "client-java"
+version = "5.1.12.5"
+
 repositories {
     mavenCentral()
     maven { url "https://jitpack.io" }
 }
 
 dependencies {
-    api ('com.epam.reportportal:commons-model:5.0.0') {
+    api('com.epam.reportportal:commons-model:5.0.0') {
         exclude module: 'jackson-databind'
     }
     api 'io.reactivex.rxjava2:rxjava:2.2.10'
@@ -48,7 +52,7 @@ dependencies {
     api "com.squareup.retrofit2:retrofit:${project.retrofit_version}"
     api 'com.fasterxml.jackson.core:jackson-databind:2.12.6.1'
     implementation "com.squareup.retrofit2:converter-scalars:${project.retrofit_version}"
-    implementation ("com.squareup.retrofit2:converter-jackson:${project.retrofit_version}") {
+    implementation("com.squareup.retrofit2:converter-jackson:${project.retrofit_version}") {
         exclude module: 'jackson-databind'
     }
     implementation "com.squareup.retrofit2:adapter-rxjava2:${project.retrofit_version}"
@@ -100,6 +104,57 @@ wrapper {
 processResources {
     filesMatching('client.properties') {
         expand(project.properties)
+    }
+}
+
+signing {
+    useGpgCmd()
+    sign configurations.archives
+}
+
+uploadArchives {
+    repositories {
+        mavenDeployer {
+            beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+
+            repository(url: "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/") {
+                authentication(userName: ossrhUsername, password: ossrhPassword)
+            }
+
+            snapshotRepository(url: "https://s01.oss.sonatype.org/content/repositories/snapshots/") {
+                authentication(userName: ossrhUsername, password: ossrhPassword)
+            }
+
+            pom.project {
+                name 'java-client'
+                packaging 'jar'
+                // optionally artifactId can be defined here
+                description 'A application used as an example on how to set up pushing its components to the Central ' +
+                        'Repository . '
+                url 'https://github.com/minhhoangvn/client-java'
+
+                scm {
+                    connection 'scm:git:git@github.com:minhhoangvn/java-client.git'
+                    developerConnection 'scm:git:ssh://github.com:minhhoangvn/java-client.git'
+                    url 'https://github.com/minhhoangvn/java-client/tree/master'
+                }
+
+                licenses {
+                    license {
+                        name 'The Apache License, Version 2.0'
+                        url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+
+                developers {
+                    developer {
+                        id 'minhhoang'
+                        name 'Hoang Ngoc Minh'
+                        email 'hnminh@outlook.com'
+                    }
+                }
+            }
+        }
     }
 }
 
