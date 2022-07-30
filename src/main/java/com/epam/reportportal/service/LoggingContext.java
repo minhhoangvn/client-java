@@ -205,7 +205,7 @@ public class LoggingContext {
         RxJavaPlugins.onAssembly(new LogBatchingFlowable(
                         new FlowableFromObservable<>(emitter).flatMap((Function<Maybe<SaveLogRQ>, Publisher<SaveLogRQ>>) Maybe::toFlowable),
                         parameters
-                ).onBackpressureBuffer(parameters.getRxBufferSize(), false, true))
+                ))
                 .flatMap((Function<List<SaveLogRQ>, Flowable<BatchSaveOperatingRS>>) rqs -> client.log(HttpRequestUtils.buildLogMultiPartRequest(
                         rqs)).toFlowable().retry(new RetryWithDelay((e) -> true, DEFAULT_RETRY_COUNT,
                         TimeUnit.SECONDS.toMillis(DEFAULT_RETRY_TIMEOUT))))
