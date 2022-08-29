@@ -35,7 +35,7 @@ targetCompatibility = JavaVersion.VERSION_1_8
 
 group = "io.github.minhhoangvn"
 archivesBaseName = "client-java"
-version = "5.1.12.6"
+version = "5.1.12.7"
 
 repositories {
     mavenCentral()

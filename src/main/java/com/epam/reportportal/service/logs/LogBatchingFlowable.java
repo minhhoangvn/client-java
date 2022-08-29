@@ -83,7 +83,7 @@ public class LogBatchingFlowable extends Flowable<List<SaveLogRQ>> implements Ha
                 return;
             }
             upstream = s;
-            synchronized (this) {
+            synchronized (buffer) {
                 if (Objects.isNull(buffer))
                     buffer = new ArrayList<>();
             }
@@ -104,7 +104,7 @@ public class LogBatchingFlowable extends Flowable<List<SaveLogRQ>> implements Ha
             }
             long size = HttpRequestUtils.calculateRequestSize(t);
             List<List<SaveLogRQ>> toSend = new ArrayList<>();
-            synchronized (this) {
+            synchronized (buffer) {
                 if (buffer == null) {
                     return;
                 }
@@ -142,7 +142,7 @@ public class LogBatchingFlowable extends Flowable<List<SaveLogRQ>> implements Ha
             done = true;
 
             List<List<SaveLogRQ>> toSend = new ArrayList<>();
-            synchronized (this) {
+            synchronized (buffer) {
                 if (buffer != null && !buffer.isEmpty()) {
                     toSend.add(buffer);
                     reset();
